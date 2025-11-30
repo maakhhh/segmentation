@@ -1,6 +1,8 @@
 import { FileInfo, DicomInfo, SegmentationResult, HealthStatus } from '../types/api';
+import { getUserId } from './user';
 
 const API_BASE = 'http://localhost:8000';
+const USER_ID = getUserId();
 
 const handleResponse = async (response: Response) => {
   if (!response.ok) {
@@ -24,6 +26,9 @@ export const apiService = {
     
     const response = await fetch(`${API_BASE}/files/upload`, {
       method: 'POST',
+      headers: {
+        "X-User": USER_ID
+      },
       body: formData,
     });
     
@@ -31,18 +36,30 @@ export const apiService = {
   },
 
   listFiles: async (): Promise<FileInfo[]> => {
-    const response = await fetch(`${API_BASE}/files/list`);
+    const response = await fetch(`${API_BASE}/files/list`, {
+      headers: {
+        "X-User": USER_ID
+      },
+    });
     return handleResponse(response);
   },
 
   // DICOM operations
   getDicomInfo: async (filename: string): Promise<DicomInfo> => {
-    const response = await fetch(`${API_BASE}/dicom/info/${filename}`);
+    const response = await fetch(`${API_BASE}/dicom/info/${filename}`, {
+      headers: {
+        "X-User": USER_ID
+      },
+    });
     return handleResponse(response);
   },
 
   getDicomPreview: async (filename: string): Promise<Blob> => {
-    const response = await fetch(`${API_BASE}/dicom/preview/${filename}`);
+    const response = await fetch(`${API_BASE}/dicom/preview/${filename}`, {
+      headers: {
+        "X-User": USER_ID
+      },
+    });
     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
     return response.blob();
   },
@@ -53,6 +70,7 @@ export const apiService = {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'X-User': USER_ID
       },
     });
     return handleResponse(response);

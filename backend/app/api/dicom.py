@@ -1,28 +1,34 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import Response
-import os
-import pydicom
+from io import BytesIO
+from backend.app.services.storage_service import StorageService
 from backend.app.services.dicom_processor import DICOMProcessor
 
 router = APIRouter(prefix="/dicom", tags=["dicom"])
 
-UPLOAD_DIR = "uploads"
+storage = StorageService()
+
+
+def get_user_id(request: Request) -> str:
+    """Временный идентификатор пользователя через заголовок"""
+    return request.headers.get("X-User", "default-user")
 
 
 @router.get("/info/{filename}")
-async def get_dicom_info(filename: str):
+async def get_dicom_info(request: Request, filename: str):
     """Информация о DICOM файле"""
-    try:
-        file_path = os.path.join(UPLOAD_DIR, filename)
+    user_id = get_user_id(request)
 
-        if not os.path.exists(file_path):
+    try:
+        # Получаем файл из S3 в память
+        file_data = storage.download_file_bytes(user_id, filename)
+        if not file_data:
             raise HTTPException(status_code=404, detail="Файл не найден")
 
-        if not filename.lower().endswith('.dcm'):
+        if not filename.lower().endswith(".dcm"):
             raise HTTPException(status_code=400, detail="Файл не является DICOM")
 
-        result = DICOMProcessor.read_dicom_file(file_path)
-
+        result = DICOMProcessor.read_dicom_bytes(BytesIO(file_data))
         if not result["success"]:
             raise HTTPException(status_code=400, detail=result["error"])
 
@@ -32,32 +38,35 @@ async def get_dicom_info(filename: str):
             "image_info": result["image_info"],
             "has_preview": bool(result.get("preview_base64"))
         }
+
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ошибка обработки DICOM файла: {str(e)}")
 
 
 @router.get("/preview/{filename}")
-async def get_dicom_preview(filename: str):
+async def get_dicom_preview(request: Request, filename: str):
     """Превью DICOM файла как PNG"""
-    try:
-        file_path = os.path.join(UPLOAD_DIR, filename)
+    user_id = get_user_id(request)
 
-        if not os.path.exists(file_path):
+    try:
+        file_data = storage.download_file_bytes(user_id, filename)
+        if not file_data:
             raise HTTPException(status_code=404, detail="Файл не найден")
 
-        if not filename.lower().endswith('.dcm'):
+        if not filename.lower().endswith(".dcm"):
             raise HTTPException(status_code=400, detail="Файл не является DICOM")
 
-        result = DICOMProcessor.read_dicom_file(file_path)
+        dicom_obj = DICOMProcessor.read_dicom_bytes(BytesIO(file_data))
+        pixel_array = dicom_obj["pixel_array"]
 
-        if not result["success"]:
-            raise HTTPException(status_code=400, detail=result["error"])
-
-        pixel_array = pydicom.dcmread(file_path).pixel_array
         normalized_image = DICOMProcessor.normalize_dicom_image(pixel_array)
         png_data = DICOMProcessor.convert_to_png(normalized_image)
 
         return Response(content=png_data, media_type="image/png")
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ошибка создания превью: {str(e)}")

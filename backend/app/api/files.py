@@ -1,72 +1,82 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException
-import os
+from fastapi import APIRouter, UploadFile, File, HTTPException, Request
 from typing import List
 from backend.app.models.schemas import FileUploadResponse, FileInfo
+from backend.app.services.storage_service import StorageService
 from backend.app.services.dicom_processor import DICOMProcessor
+from io import BytesIO
+import os
 
 router = APIRouter(prefix="/files", tags=["files"])
 
-UPLOAD_DIR = "uploads"
-os.makedirs(UPLOAD_DIR, exist_ok=True)
 ALLOWED_EXTENSIONS = {'.dcm', '.png', '.jpg', '.jpeg'}
+MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 MB
+
+storage = StorageService()
+
+
+def get_user_id(request: Request) -> str:
+    """
+    Временный идентификатор пользователя через заголовок.
+    Можно заменить на токены или uuid.
+    """
+    return request.headers.get("X-User", "default-user")
 
 
 @router.post("/upload", response_model=FileUploadResponse)
-async def upload_file(file: UploadFile = File(...)):
-    """Загрузка файла для сегментации"""
+async def upload_file(request: Request, file: UploadFile = File(...)):
+    """
+    Загрузка файла пользователем в S3-совместимое хранилище.
+    Поддержка DICOM и одиночных изображений.
+    """
+    user_id = get_user_id(request)
+    file_extension = os.path.splitext(file.filename)[1].lower()
+
+    if file_extension not in ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Неподдерживаемый формат файла. Разрешенные: {', '.join(ALLOWED_EXTENSIONS)}"
+        )
+
+    # Проверка размера файла
+    content = await file.read()
+    if len(content) > MAX_FILE_SIZE:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Файл слишком большой. Максимальный размер: {MAX_FILE_SIZE / (1024*1024)} MB"
+        )
+
     try:
-        file_extension = os.path.splitext(file.filename)[1].lower()
-        if file_extension not in ALLOWED_EXTENSIONS:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Неподдерживаемый формат файла. Разрешенные: {', '.join(ALLOWED_EXTENSIONS)}"
-            )
-
-        # Проверка размера
-        max_size = 50 * 1024 * 1024
-        file.file.seek(0, 2)
-        file_size = file.file.tell()
-        file.file.seek(0)
-
-        if file_size > max_size:
-            raise HTTPException(status_code=400, detail="Файл слишком большой. Максимальный размер: 50MB")
-
-        file_path = os.path.join(UPLOAD_DIR, file.filename)
-
-        with open(file_path, "wb") as buffer:
-            content = await file.read()
-            buffer.write(content)
-
-        # DICOM обработка
-        processing_result = {}
-        if file_extension == '.dcm':
-            processing_result = DICOMProcessor.read_dicom_file(file_path)
+        # Загружаем файл в S3 / MinIO
+        key = storage.upload_file(user_id, file.filename, content)
 
         return FileUploadResponse(
             message="Файл успешно загружен",
             filename=file.filename,
-            file_size=file_size,
+            file_size=len(content),
             file_type=file_extension,
-            saved_path=file_path
+            saved_path=key
         )
-
-    except HTTPException:
-        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Внутренняя ошибка сервера: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при загрузке файла: {str(e)}")
 
 
 @router.get("/list", response_model=List[FileInfo])
-async def list_uploaded_files():
-    """Список загруженных файлов"""
-    files = []
-    if os.path.exists(UPLOAD_DIR):
-        for filename in os.listdir(UPLOAD_DIR):
-            file_path = os.path.join(UPLOAD_DIR, filename)
-            if os.path.isfile(file_path):
-                files.append(FileInfo(
-                    name=filename,
-                    size=os.path.getsize(file_path),
-                    upload_time=os.path.getctime(file_path)
-                ))
-    return files
+async def list_uploaded_files(request: Request):
+    """
+    Список файлов пользователя.
+    """
+    user_id = get_user_id(request)
+    try:
+        files = []
+        object_list = storage.list_files(user_id)
+        for key in object_list:
+            # Получаем метаданные файла
+            obj = storage.client.stat_object(storage.bucket, f"{user_id}/{key}")
+            files.append(FileInfo(
+                name=key,
+                size=obj.size,
+                upload_time=obj.last_modified.timestamp()
+            ))
+        return files
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ошибка при получении списка файлов: {str(e)}")
