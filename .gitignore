@@ -1,0 +1,71 @@
+# -----------------------------
+# PYTHON BACKEND
+# -----------------------------
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+
+# Python environment
+.env
+.env.*
+
+# Compiled models / checkpoints
+*.h5
+*.keras
+*.ckpt
+*.ckpt.*
+*.pb
+
+# Local uploads (DICOM files)
+uploads/
+*/uploads/
+
+# -----------------------------
+# FRONTEND (React + Vite)
+# -----------------------------
+node_modules/
+dist/
+*.local
+
+# Vite cache
+.vite/
+
+# -----------------------------
+# DOCKER
+# -----------------------------
+# Docker build artifacts
+*.tar
+*.img
+*~lock
+
+# -----------------------------
+# OS files
+# -----------------------------
+.DS_Store
+Thumbs.db
+
+# -----------------------------
+# IDE / EDITORS
+# -----------------------------
+
+# PyCharm / IntelliJ
+.idea/
+*.iml
+
+# VSCode
+.vscode/
+
+# -----------------------------
+# MISC
+# -----------------------------
+# Logs
+logs/
+*.log
+
+# Temporary files
+temp/
+tmp/
+*.tmp

@@ -1,0 +1,22 @@
+version: "3.9"
+
+services:
+  backend:
+    container_name: liver-backend
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./uploads:/app/uploads
+    restart: always
+
+  frontend:
+    container_name: liver-frontend
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "5173:5173"
+    restart: always
