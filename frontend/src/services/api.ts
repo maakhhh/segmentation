@@ -1,4 +1,4 @@
-import { FileInfo, DicomInfo, SegmentationResult, HealthStatus } from '../types/api';
+import { FileInfo, DicomInfo, SegmentationResult, HealthStatus, SeriesInfo } from '../types/api';
 import { getUserId } from './user';
 
 const API_BASE = 'http://localhost:8000';
@@ -73,6 +73,47 @@ export const apiService = {
         'X-User': USER_ID
       },
     });
+    return handleResponse(response);
+  },
+
+  // Series operations (ZIP archive)
+  uploadSeries: async (seriesName: string, zipFile: File): Promise<any> => {
+    const formData = new FormData();
+    formData.append("series_name", seriesName);
+    formData.append("zip_file", zipFile);
+
+    const response = await fetch(`${API_BASE}/files/upload_series_zip`, {
+      method: "POST",
+      headers: {
+        "X-User": USER_ID
+      },
+      body: formData
+    });
+
+    return handleResponse(response);
+  },
+
+  listSeries: async (): Promise<SeriesInfo[]> => {
+    const response = await fetch(`${API_BASE}/files/series-list`, {
+      headers: {
+        "X-User": USER_ID
+      }
+    });
+    return handleResponse(response);
+  },
+
+  segmentSeries: async (seriesName: string): Promise<any> => {
+    const formData = new FormData();
+    formData.append("series_name", seriesName);
+
+    const response = await fetch(`${API_BASE}/segmentation/series`, {
+      method: "POST",
+      headers: {
+        "X-User": USER_ID
+      },
+      body: formData
+    });
+
     return handleResponse(response);
   },
 };

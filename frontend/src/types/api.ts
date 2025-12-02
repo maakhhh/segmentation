@@ -44,3 +44,25 @@ export interface HealthStatus {
   service: string;
   model_available: boolean;
 }
+
+export interface SeriesInfo {
+  series_name: string;
+  files: string[];
+}
+
+export interface SeriesSegmentationResult {
+  message: string;
+  volume_shape: number[];
+  segmentation: Array<{
+    success: boolean;
+    mask_shape: number[];
+    metrics: {
+      liver_area_ratio: number;
+      liver_pixels: number;
+      total_pixels: number;
+    };
+    mask_area_pixels: number;
+    visualization: string | null; // Может быть null если визуализация не создана
+  }>;
+  total_volume?: number;
+}

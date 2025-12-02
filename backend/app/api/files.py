@@ -1,5 +1,7 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException, Request
-from typing import List
+from zipfile import ZipFile
+
+from fastapi import APIRouter, UploadFile, File, HTTPException, Request, Form
+from typing import List, Dict
 from backend.app.models.schemas import FileUploadResponse, FileInfo
 from backend.app.services.storage_service import StorageService
 from backend.app.services.dicom_processor import DICOMProcessor
@@ -80,3 +82,85 @@ async def list_uploaded_files(request: Request):
         return files
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ошибка при получении списка файлов: {str(e)}")
+
+
+@router.post("/upload_series_zip")
+async def upload_series_zip(
+    request: Request,
+    series_name: str = Form(...),
+    zip_file: UploadFile = File(...)
+):
+    """
+    Загрузка серии DICOM в виде ZIP архива.
+    """
+    user_id = get_user_id(request)
+    if not zip_file.filename.lower().endswith(".zip"):
+        raise HTTPException(status_code=400, detail="Разрешены только ZIP архивы")
+
+    content = await zip_file.read()
+    uploaded_files = []
+
+    with ZipFile(BytesIO(content)) as zip_obj:
+        for file_info in zip_obj.infolist():
+            filename = file_info.filename
+            ext = os.path.splitext(filename)[1].lower()
+            if ext != ".dcm":
+                continue  # игнорируем не-DICOM
+
+            file_bytes = zip_obj.read(file_info)
+            key = storage.upload_file(user_id, f"{series_name}/{os.path.basename(filename)}", file_bytes)
+            uploaded_files.append(key)
+
+    if not uploaded_files:
+        raise HTTPException(status_code=400, detail="Архив не содержит DICOM файлов")
+
+    return {"message": "Серия успешно загружена", "files": uploaded_files}
+
+
+@router.get("/series-list")
+async def list_series(request: Request):
+    """
+    Получение списка серий пользователя.
+    Формат хранения: user_id/series_name/file.dcm
+    """
+    user_id = get_user_id(request)
+    try:
+        prefix = f"{user_id }/"
+        objects = storage.client.list_objects(
+            storage.bucket,
+            prefix=prefix,
+            recursive=True
+        )
+
+        series: Dict[str, List[str]] = {}
+
+        for obj in objects:
+            # Пример пути:
+            # user123/abdomen_ct_01/IMG0001.dcm
+
+            full_path = obj.object_name.replace(prefix, "")  # abdomen_ct_01/IMG0001.dcm
+
+            if "/" not in full_path:
+                # файл уровня user_id — пропускаем
+                continue
+
+            series_name, filename = full_path.split("/", 1)
+
+            if series_name not in series:
+                series[series_name] = []
+
+            series[series_name].append(filename)
+
+        # Преобразуем в массив объектов
+        result = [
+            {
+                "series_name": s,
+                "files": sorted(series[s])
+            }
+            for s in sorted(series)
+        ]
+
+        return result
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ошибка при получении списка серий: {e}")

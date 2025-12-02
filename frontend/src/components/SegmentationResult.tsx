@@ -11,7 +11,6 @@ const SegmentationResult: React.FC<SegmentationResultProps> = ({ data }) => {
 
   return (
     <div className="segmentation-result">
-      <h3>🎯 Результаты сегментации</h3>
       
       {/* Табы для переключения между метриками и визуализацией */}
       <div className="tabs">
