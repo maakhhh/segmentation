@@ -13,7 +13,14 @@ services:
       MINIO_ACCESS_KEY: admin
       MINIO_SECRET_KEY: password123
       MINIO_BUCKET: liver-files
+      PYTHONPATH: /app
+    volumes:
+      - ./backend:/app/backend
+      - ./model:/app/model
+      - ./reconstruction3D:/app/reconstruction3D
     restart: always
+    depends_on:
+      - minio
 
   frontend:
     container_name: liver-frontend
@@ -22,7 +29,14 @@ services:
       dockerfile: Dockerfile
     ports:
       - "5173:5173"
+    environment:
+      VITE_API_BASE: http://localhost:8000
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
     restart: always
+    depends_on:
+      - backend
 
   minio:
     image: minio/minio
