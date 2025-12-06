@@ -1,7 +1,13 @@
-import { FileInfo, DicomInfo, SegmentationResult, HealthStatus, SeriesInfo } from '../types/api';
+import {
+  FileInfo,
+  DicomInfo,
+  SegmentationResult,
+  HealthStatus,
+  ReconstructionResult
+} from '../types/api';
 import { getUserId } from './user';
 
-const API_BASE = 'http://localhost:8000';
+const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
 const USER_ID = getUserId();
 
 const handleResponse = async (response: Response) => {
@@ -23,7 +29,7 @@ export const apiService = {
   uploadFile: async (file: File): Promise<any> => {
     const formData = new FormData();
     formData.append('file', file);
-    
+
     const response = await fetch(`${API_BASE}/files/upload`, {
       method: 'POST',
       headers: {
@@ -31,7 +37,7 @@ export const apiService = {
       },
       body: formData,
     });
-    
+
     return handleResponse(response);
   },
 
@@ -64,7 +70,7 @@ export const apiService = {
     return response.blob();
   },
 
-  // Segmentation
+  // 2D Segmentation
   segmentFile: async (filename: string): Promise<SegmentationResult> => {
     const response = await fetch(`${API_BASE}/segmentation/slice/${filename}`, {
       method: 'POST',
@@ -76,44 +82,67 @@ export const apiService = {
     return handleResponse(response);
   },
 
-  // Series operations (ZIP archive)
-  uploadSeries: async (seriesName: string, zipFile: File): Promise<any> => {
-    const formData = new FormData();
-    formData.append("series_name", seriesName);
-    formData.append("zip_file", zipFile);
+  // 3D Reconstruction operations
+  reconstruct3D: async (filename: string): Promise<ReconstructionResult> => {
+    const response = await fetch(`${API_BASE}/reconstruction/3d/${filename}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-User': USER_ID
+      },
+    });
+    return handleResponse(response);
+  },
 
-    const response = await fetch(`${API_BASE}/files/upload_series_zip`, {
-      method: "POST",
+  export3DModel: async (filename: string, format: string = 'stl'): Promise<Blob> => {
+    const response = await fetch(`${API_BASE}/reconstruction/export/${filename}?format=${format}`, {
       headers: {
         "X-User": USER_ID
       },
-      body: formData
     });
-
-    return handleResponse(response);
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+    return response.blob();
   },
 
-  listSeries: async (): Promise<SeriesInfo[]> => {
-    const response = await fetch(`${API_BASE}/files/series-list`, {
-      headers: {
-        "X-User": USER_ID
-      }
-    });
-    return handleResponse(response);
-  },
-
-  segmentSeries: async (seriesName: string): Promise<any> => {
-    const formData = new FormData();
-    formData.append("series_name", seriesName);
-
-    const response = await fetch(`${API_BASE}/segmentation/series`, {
-      method: "POST",
+  get3DMetrics: async (filename: string): Promise<any> => {
+    const response = await fetch(`${API_BASE}/reconstruction/metrics/${filename}`, {
       headers: {
         "X-User": USER_ID
       },
-      body: formData
+    });
+    return handleResponse(response);
+  },
+
+  // Utility function to download file
+  downloadFile: (blob: Blob, filename: string) => {
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+  },
+
+  // ZIP upload
+  uploadZipSeries: async (file: File): Promise<any> => {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const response = await fetch(`${API_BASE}/zip/upload-series`, {
+      method: 'POST',
+      headers: {
+        'X-User': USER_ID
+      },
+      body: formData,
     });
 
     return handleResponse(response);
   },
+
+  // Для прогресса загрузки
+  uploadZipWithProgress: async (file: File, onProgress?: (progress: number) => void) => {
+    // Реализация с использованием XMLHttpRequest или axios для отслеживания прогресса
+  }
 };

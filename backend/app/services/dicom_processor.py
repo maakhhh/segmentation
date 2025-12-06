@@ -1,6 +1,6 @@
 import pydicom
 import numpy as np
-from typing import Dict, Any, List
+from typing import Dict, Any
 import logging
 from PIL import Image
 import io
@@ -86,121 +86,42 @@ class DICOMProcessor:
         image.save(buffer, format='PNG')
         return buffer.getvalue()
 
+    ##############
     @staticmethod
-    def read_dicom_series_bytes(files_bytes: List[bytes]) -> Dict:
+    def read_dicom_series(folder_path: str) -> Dict[str, Any]:
         """
-        Чтение серии DICOM файлов из байтов.
-        Возвращает отсортированный 3D-объем и метаданные.
+        Чтение серии DICOM файлов (всех срезов)
         """
-
-        slices = []
-        series_metadata = {}
-
-        # Читаем каждый DICOM из байтов
-        for i, file_bytes in enumerate(files_bytes):
-            try:
-                dicom_obj = pydicom.dcmread(io.BytesIO(file_bytes), force=True)
-
-                # Проверяем, что это действительно DICOM
-                if not hasattr(dicom_obj, 'pixel_array'):
-                    continue
-
-                # Получаем пиксельные данные
-                pixel_array = dicom_obj.pixel_array.astype(np.float32)
-
-                # Применяем Rescale Slope/Intercept если есть
-                if hasattr(dicom_obj, 'RescaleSlope') and hasattr(dicom_obj, 'RescaleIntercept'):
-                    pixel_array = pixel_array * float(dicom_obj.RescaleSlope) + float(dicom_obj.RescaleIntercept)
-                    print(f"  Применен Rescale: Slope={dicom_obj.RescaleSlope}, Intercept={dicom_obj.RescaleIntercept}")
-
-                # Применяем оконное преобразование если есть
-                window_center = getattr(dicom_obj, 'WindowCenter', None)
-                window_width = getattr(dicom_obj, 'WindowWidth', None)
-
-                if window_center is not None and window_width is not None:
-                    # Конвертируем в список если нужно
-                    if hasattr(window_center, '__len__'):
-                        window_center = float(window_center[0])
-                    else:
-                        window_center = float(window_center)
-
-                    if hasattr(window_width, '__len__'):
-                        window_width = float(window_width[0])
-                    else:
-                        window_width = float(window_width)
-
-                    # Применяем оконное преобразование
-                    window_min = window_center - window_width / 2
-                    window_max = window_center + window_width / 2
-
-                    pixel_array = np.clip(pixel_array, window_min, window_max)
-                    pixel_array = (pixel_array - window_min) / (window_max - window_min)
-                    pixel_array = np.clip(pixel_array, 0, 1) * 255
-                    pixel_array = pixel_array.astype(np.uint8)
-
-                    print(f"  Применено окно: Center={window_center}, Width={window_width}")
-                else:
-                    # Иначе нормализуем к 0-255
-                    pixel_min = pixel_array.min()
-                    pixel_max = pixel_array.max()
-
-                    if pixel_max - pixel_min > 0:
-                        pixel_array = (pixel_array - pixel_min) / (pixel_max - pixel_min) * 255
-                    else:
-                        pixel_array = pixel_array * 255
-
-                    pixel_array = pixel_array.astype(np.uint8)
-                    print(f"  Нормализовано: [{pixel_min}, {pixel_max}] -> [0, 255]")
-
-                # Метаданные первого файла
-                if i == 0:
-                    series_metadata = {
-                        "slice_thickness": float(getattr(dicom_obj, "SliceThickness", 1.0)),
-                        "pixel_spacing": [float(x) for x in getattr(dicom_obj, "PixelSpacing", [1.0, 1.0])],
-                        "series_description": getattr(dicom_obj, "SeriesDescription", ""),
-                        "rows": int(dicom_obj.Rows),
-                        "columns": int(dicom_obj.Columns),
-                        "modality": getattr(dicom_obj, "Modality", ""),
-                        "window_center": float(window_center) if window_center else None,
-                        "window_width": float(window_width) if window_width else None,
-                        "rescale_slope": float(getattr(dicom_obj, 'RescaleSlope', 1.0)),
-                        "rescale_intercept": float(getattr(dicom_obj, 'RescaleIntercept', 0.0)),
-                    }
-
-                # Определяем позицию среза
-                slice_position = None
-                if hasattr(dicom_obj, 'ImagePositionPatient'):
-                    slice_position = float(dicom_obj.ImagePositionPatient[2])
-                elif hasattr(dicom_obj, 'SliceLocation'):
-                    slice_position = float(dicom_obj.SliceLocation)
-                else:
-                    slice_position = float(getattr(dicom_obj, 'InstanceNumber', i))
-
-                slices.append((pixel_array, slice_position, i))
-
-            except Exception as e:
-                print(f"Ошибка чтения DICOM файла {i}: {e}")
-                continue
-
-        if not slices:
-            return {"success": False, "error": "Нет DICOM файлов с изображениями"}
-
-        # Сортировка по позиции среза
         try:
-            slices_sorted = sorted(slices, key=lambda x: x[1])
-            volume = np.stack([s[0] for s in slices_sorted], axis=0)
+            import pydicom
+            import os
 
-            print(f"✅ Создан объем: {volume.shape}, dtype: {volume.dtype}, диапазон: [{volume.min()}, {volume.max()}]")
+            # Получаем все DICOM файлы в папке
+            dcm_files = [f for f in os.listdir(folder_path) if f.endswith('.dcm')]
+            dcm_files.sort()  # Важно: сортировка по имени или позиции
+
+            slices = []
+            metadata_list = []
+
+            for dcm_file in dcm_files:
+                dicom = pydicom.dcmread(os.path.join(folder_path, dcm_file))
+                slices.append(dicom.pixel_array)
+                metadata_list.append({
+                    "slice_position": float(getattr(dicom, 'SliceLocation', 0)),
+                    "instance_number": int(getattr(dicom, 'InstanceNumber', 0))
+                })
+
+            # Собираем 3D объем
+            volume = np.stack(slices, axis=0)
+
+            return {
+                "success": True,
+                "volume": volume,
+                "shape": volume.shape,
+                "num_slices": len(slices),
+                "metadata": metadata_list
+            }
 
         except Exception as e:
-            return {"success": False, "error": f"Ошибка при создании объема: {str(e)}"}
-
-        return {
-            "success": True,
-            "volume": volume,
-            "series_info": series_metadata,
-            "volume_shape": volume.shape,
-            "num_slices": len(slices),
-        }
-
-
+            logger.error(f"Ошибка чтения DICOM серии: {str(e)}")
+            return {"success": False, "error": str(e)}

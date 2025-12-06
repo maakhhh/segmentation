@@ -1,225 +1,323 @@
-import React, { useState, useEffect } from "react";
-import FileUpload from "./components/FileUpload";
-import FileList from "./components/FileList";
-import DicomViewer from "./components/DicomViewer";
-import SegmentationResult from "./components/SegmentationResult";
-import SeriesSegmentationResults from "./components/SeriesSegmentationResults"; // Добавить
-import { apiService } from "./services/api";
-import { HealthStatus } from "./types/api";
-import "./App.css";
-
-import SeriesUpload from "./components/SeriesUpload";
-import SeriesList from "./components/SeriesList";
+import React, { useState, useEffect } from 'react';
+import FileUpload from './components/FileUpload';
+import ZipUpload from './components/ZipUpload';
+import FileList from './components/FileList';
+import DicomViewer from './components/DicomViewer';
+import SegmentationResult from './components/SegmentationResult';
+import { apiService } from './services/api';
+import { HealthStatus } from './types/api';
+import './App.css';
 
 const App: React.FC = () => {
   const [healthStatus, setHealthStatus] = useState<HealthStatus | null>(null);
+  const [selectedFile, setSelectedFile] = useState<string>('');
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [segmentationData, setSegmentationData] = useState<any>(null);
+  const [activeTab, setActiveTab] = useState<'single' | 'series'>('single');
+  const [loading, setLoading] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
 
-  // ---- обычные файлы ----
-  const [selectedFile, setSelectedFile] = useState<string>("");
-  const [refreshFiles, setRefreshFiles] = useState(0);
-  const [fileSegmentation, setFileSegmentation] = useState<any>(null);
-
-  // ---- серии ----
-  const [selectedSeries, setSelectedSeries] = useState<string | null>(null);
-  const [refreshSeries, setRefreshSeries] = useState(0);
-  const [seriesSegmentation, setSeriesSegmentation] = useState<any>(null);
-
-  // ---- UI ----
-  const [activeTab, setActiveTab] = useState<"files" | "series">("files");
+  console.log('App render:', {
+    activeTab,
+    selectedFile,
+    hasSegmentationData: !!segmentationData,
+    segmentationDataType: segmentationData?.type || 'none'
+  });
 
   useEffect(() => {
-    loadHealth();
+    checkHealth();
   }, []);
 
-  const loadHealth = async () => {
+  const checkHealth = async () => {
     try {
       const status = await apiService.getHealth();
       setHealthStatus(status);
-    } catch (e) {
-      console.error("Health check failed:", e);
+    } catch (error) {
+      console.error('Health check failed:', error);
+      setError('Ошибка подключения к серверу');
     }
   };
 
-  // --------------------------------------------------------
-  // HANDLE FILE SEGMENTATION
-  // --------------------------------------------------------
-  const handleSegmentFile = async () => {
+  const handleUploadSuccess = () => {
+    setRefreshTrigger(prev => prev + 1);
+  };
+
+  const handleZipUploadSuccess = (result: any) => {
+    console.log('ZIP upload success result:', result);
+
+    // Формируем данные в формате, который ожидает SegmentationResult
+    const formattedData = {
+      filename: result.filename,
+      segmentation: {
+        success: true,
+        mask_shape: result.segmentation?.masks_shape || [512, 512],
+        metrics: result.segmentation?.metrics || {
+          liver_area_ratio: 0.3,
+          liver_pixels: 100000,
+          total_pixels: 262144
+        },
+        mask_area_pixels: 100000,
+        visualization: null // Нет 2D визуализации для ZIP
+      },
+      dicom_info: {
+        modality: 'CT',
+        study_description: result.series_info?.study_description || 'ZIP Archive',
+        series_description: result.series_info?.series_description || 'DICOM Series',
+        rows: 512,
+        columns: 512,
+        slice_thickness: result.series_info?.spacing?.[2] || 3.0
+      },
+      reconstruction: result.reconstruction,
+      series_info: result.series_info,
+      type: 'zip' // Добавляем тип для идентификации
+    };
+
+    console.log('Formatted data for SegmentationResult:', formattedData);
+    setSegmentationData(formattedData);
+    setSelectedFile(result.filename);
+    setRefreshTrigger(prev => prev + 1);
+  };
+
+  const handleFileSelect = (filename: string) => {
+    console.log('File selected:', filename);
+    setSelectedFile(filename);
+    setSegmentationData(null);
+    setError(null);
+  };
+
+  const handleSegment = async () => {
     if (!selectedFile) return;
+
+    setLoading(true);
+    setError(null);
 
     try {
       const result = await apiService.segmentFile(selectedFile);
-      setFileSegmentation(result);
-    } catch (e) {
-      alert("Ошибка сегментации файла: " + e);
+      console.log('Segmentation result:', result);
+
+      // Добавляем тип для идентификации
+      const resultWithType = { ...result, type: 'single' };
+      setSegmentationData(resultWithType);
+    } catch (error) {
+      console.error('Segmentation failed:', error);
+      const errorMsg = error instanceof Error ? error.message : 'Неизвестная ошибка';
+      setError('Ошибка сегментации: ' + errorMsg);
+      alert('Ошибка сегментации: ' + errorMsg);
+    } finally {
+      setLoading(false);
     }
   };
 
-  // --------------------------------------------------------
-  // HANDLE SERIES SEGMENTATION
-  // --------------------------------------------------------
-  const handleSegmentSeries = async () => {
-    if (!selectedSeries) return;
-    try {
-      const result = await apiService.segmentSeries(selectedSeries);
-      setSeriesSegmentation(result);
-    } catch (e) {
-      alert("Ошибка сегментации серии: " + e);
-    }
-  };
-
-  // --------------------------------------------------------
-  // HANDLE SERIES SELECTION
-  // --------------------------------------------------------
-  const handleSelectSeries = (seriesName: string) => {
-    setSelectedSeries(seriesName);
-    setSeriesSegmentation(null);
-  };
-
-  // --------------------------------------------------------
-  // HANDLE TAB SWITCH
-  // --------------------------------------------------------
-  const handleTabSwitch = (tab: "files" | "series") => {
+  const handleTabChange = (tab: 'single' | 'series') => {
+    console.log('Changing tab to:', tab);
     setActiveTab(tab);
-    // Сбрасываем выбранные элементы при переключении вкладок
-    if (tab === "files") {
-      setSelectedSeries(null);
-      setSeriesSegmentation(null);
-    } else {
-      setSelectedFile("");
-      setFileSegmentation(null);
-    }
-  };
-
-  // --------------------------------------------------------
-  // HANDLE FILE SELECTION
-  // --------------------------------------------------------
-  const handleSelectFile = (filename: string) => {
-    setSelectedFile(filename);
-    setFileSegmentation(null);
+    setSelectedFile('');
+    setSegmentationData(null);
+    setError(null);
   };
 
   return (
     <div className="app">
-      {/* HEADER */}
       <header className="app-header">
-        <h1>🍃 Сервис сегментации печени</h1>
+        <h1>🍃 Сервис 3D сегментации печени</h1>
+        {healthStatus && (
+          <div className="health-status">
+            Статус: {healthStatus.status} |
+            Модель: {healthStatus.model_available ? '✅ Доступна' : '❌ Недоступна'}
+          </div>
+        )}
+        {error && (
+          <div className="error-message" style={{
+            background: '#ffebee',
+            color: '#c62828',
+            padding: '10px',
+            marginTop: '10px',
+            borderRadius: '5px'
+          }}>
+            ⚠️ {error}
+          </div>
+        )}
       </header>
 
-      {/* TABS */}
-      <div className="tabs-main" style={{ marginTop: '1.5rem' }}>
-        <button
-          className={`main-tab ${activeTab === "files" ? "active" : ""}`}
-          onClick={() => handleTabSwitch("files")}
-        >
-          Одиночные файлы
-        </button>
-        <button
-          className={`main-tab ${activeTab === "series" ? "active" : ""}`}
-          onClick={() => handleTabSwitch("series")}
-        >
-          Серии (ZIP)
-        </button>
-      </div>
-
-      {/* MAIN CONTENT */}
       <div className="app-content">
-        {/* --------------------------------------------------------
-            TAB: FILES
-        -------------------------------------------------------- */}
-        {activeTab === "files" && (
-          <>
-            <div className="sidebar">
-              <FileUpload onUploadSuccess={() => setRefreshFiles(p => p + 1)} />
+        <div className="sidebar">
+          {/* Вкладки для выбора типа загрузки */}
+          <div className="upload-tabs" style={{ marginBottom: '20px' }}>
+            <button
+              onClick={() => handleTabChange('single')}
+              style={{
+                padding: '10px 20px',
+                background: activeTab === 'single' ? '#007acc' : '#eee',
+                color: activeTab === 'single' ? 'white' : '#333',
+                border: 'none',
+                cursor: 'pointer',
+                width: '50%',
+                borderTopLeftRadius: '5px',
+                borderBottomLeftRadius: '5px'
+              }}
+            >
+              📄 Один DICOM
+            </button>
+            <button
+              onClick={() => handleTabChange('series')}
+              style={{
+                padding: '10px 20px',
+                background: activeTab === 'series' ? '#007acc' : '#eee',
+                color: activeTab === 'series' ? 'white' : '#333',
+                border: 'none',
+                cursor: 'pointer',
+                width: '50%',
+                borderTopRightRadius: '5px',
+                borderBottomRightRadius: '5px'
+              }}
+            >
+              📦 Серия DICOM (ZIP)
+            </button>
+          </div>
+
+          {activeTab === 'single' && (
+            <>
+              <FileUpload onUploadSuccess={handleUploadSuccess} />
               <FileList
-                refreshTrigger={refreshFiles}
-                onFileSelect={handleSelectFile}
+                refreshTrigger={refreshTrigger}
+                onFileSelect={handleFileSelect}
               />
+            </>
+          )}
+
+          {activeTab === 'series' && (
+            <ZipUpload
+              onUploadSuccess={handleZipUploadSuccess}
+              onUploadError={(errorMsg) => {
+                console.error('ZIP upload error:', errorMsg);
+                setError('Ошибка загрузки ZIP: ' + errorMsg);
+              }}
+            />
+          )}
+        </div>
+
+        <div className="main-content">
+          {loading && (
+            <div className="loading-overlay" style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              background: 'rgba(255, 255, 255, 0.8)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 1000
+            }}>
+              <div style={{
+                background: 'white',
+                padding: '30px',
+                borderRadius: '10px',
+                boxShadow: '0 4px 20px rgba(0,0,0,0.2)',
+                textAlign: 'center'
+              }}>
+                <div style={{ fontSize: '24px', marginBottom: '10px' }}>⏳</div>
+                <div>Обработка данных...</div>
+              </div>
             </div>
+          )}
 
-            <div className="main-content">
-              {selectedFile ? (
-                <>
-                  <div className="file-actions">
-                    <div className="file-header">
-                      <h3>Выбран файл:</h3>
-                      <div className="selected-filename">{selectedFile}</div>
-                    </div>
-                    <button className="segment-button" onClick={handleSegmentFile}>
-                      🎯 Сегментировать файл
-                    </button>
-                  </div>
+          {activeTab === 'single' && selectedFile && (
+            <div className="file-actions">
+              <h3>Выбран файл: {selectedFile}</h3>
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button
+                  onClick={handleSegment}
+                  className="segment-button"
+                  disabled={loading}
+                  style={{
+                    padding: '10px 20px',
+                    background: loading ? '#ccc' : '#4CAF50',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '5px',
+                    cursor: loading ? 'not-allowed' : 'pointer'
+                  }}
+                >
+                  {loading ? 'Обработка...' : '🎯 Выполнить 2D сегментацию'}
+                </button>
+                <button
+                  onClick={checkHealth}
+                  className="health-button"
+                  style={{
+                    padding: '10px 20px',
+                    background: '#666',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '5px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  🔄 Проверить статус
+                </button>
+              </div>
+            </div>
+          )}
 
-                  <DicomViewer filename={selectedFile} />
+          {activeTab === 'single' && selectedFile && !segmentationData && (
+            <DicomViewer filename={selectedFile} />
+          )}
 
-                  {fileSegmentation && (
-                    <div className="segmentation-section">
-                      <h3 className="section-title">Результаты сегментации</h3>
-                      <SegmentationResult data={fileSegmentation} />
-                    </div>
-                  )}
-                </>
-              ) : (
-                <div className="empty-state">
-                  <div className="empty-icon">📄</div>
-                  <h3>Выберите файл для просмотра</h3>
-                  <p>Загрузите DICOM файл и выберите его из списка для отображения и сегментации</p>
+          {segmentationData && (
+            <SegmentationResult data={segmentationData} />
+          )}
+
+          {!segmentationData && activeTab === 'series' && (
+            <div className="welcome-message" style={{
+              textAlign: 'center',
+              padding: '40px',
+              background: '#f5f5f5',
+              borderRadius: '10px',
+              marginTop: '20px'
+            }}>
+              <h2>📦 Загрузите серию DICOM в ZIP архиве</h2>
+              <p style={{ fontSize: '16px', color: '#666', marginBottom: '20px' }}>
+                После загрузки система автоматически построит 3D модель печени
+              </p>
+
+              <div style={{
+                display: 'inline-block',
+                textAlign: 'left',
+                background: 'white',
+                padding: '20px',
+                borderRadius: '8px',
+                boxShadow: '0 2px 10px rgba(0,0,0,0.1)'
+              }}>
+                <p><strong>Процесс обработки:</strong></p>
+                <ul style={{ paddingLeft: '20px' }}>
+                  <li>📦 Распаковка ZIP архива</li>
+                  <li>🖼️ Чтение всех DICOM срезов</li>
+                  <li>🧠 Сегментация печени на каждом срезе</li>
+                  <li>🎮 Построение точной 3D модели</li>
+                  <li>📊 Расчет объема и площади поверхности</li>
+                  <li>📥 Экспорт модели в STL/PLY форматах</li>
+                </ul>
+
+                <div style={{
+                  marginTop: '20px',
+                  padding: '15px',
+                  background: '#e8f5e9',
+                  borderRadius: '5px',
+                  fontSize: '14px'
+                }}>
+                  <p><strong>Требования к ZIP архиву:</strong></p>
+                  <ul style={{ paddingLeft: '20px', marginBottom: 0 }}>
+                    <li>Только файлы с расширением .dcm</li>
+                    <li>Рекомендуется: 20-100 срезов</li>
+                    <li>Все срезы должны быть из одного исследования</li>
+                    <li>Максимальный размер архива: 500MB</li>
+                  </ul>
                 </div>
-              )}
+              </div>
             </div>
-          </>
-        )}
-
-        {/* --------------------------------------------------------
-            TAB: SERIES
-        -------------------------------------------------------- */}
-        {activeTab === "series" && (
-          <>
-            <div className="sidebar">
-              <SeriesUpload onSuccess={() => setRefreshSeries(p => p + 1)} />
-
-              <SeriesList
-                refreshTrigger={refreshSeries}
-                onSelect={handleSelectSeries}
-                selectedSeries={selectedSeries}
-              />
-            </div>
-
-            <div className="main-content">
-              {selectedSeries ? (
-                <>
-                  <div className="file-actions">
-                    <div className="file-header">
-                      <h3>Выбрана серия:</h3>
-                      <div className="selected-filename">{selectedSeries}</div>
-                    </div>
-                    <button className="segment-button" onClick={handleSegmentSeries}>
-                      🎯 Сегментировать серию
-                    </button>
-                  </div>
-
-                  {seriesSegmentation ? (
-                    <SeriesSegmentationResults
-                      data={seriesSegmentation}
-                      seriesName={selectedSeries}
-                    />
-                  ) : (
-                    <div className="empty-state">
-                      <div className="empty-icon">🔬</div>
-                      <h3>Серия готова к сегментации</h3>
-                      <p>Нажмите кнопку "Сегментировать серию" для начала обработки всех файлов в серии</p>
-                    </div>
-                  )}
-                </>
-              ) : (
-                <div className="empty-state">
-                  <div className="empty-icon">🗂️</div>
-                  <h3>Выберите серию для обработки</h3>
-                  <p>Загрузите ZIP архив с DICOM файлами и выберите серию из списка для сегментации</p>
-                </div>
-              )}
-            </div>
-          </>
-        )}
+          )}
+        </div>
       </div>
     </div>
   );

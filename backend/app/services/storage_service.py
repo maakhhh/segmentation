@@ -30,10 +30,10 @@ class StorageService:
         )
         return key
 
-    def list_files(self, user_id: str, prefix=""):
-        prefix = f"{user_id}/{prefix}"
+    def list_files(self, user_id: str):
+        prefix = f"{user_id}/"
         objects = self.client.list_objects(self.bucket, prefix=prefix)
-        return [obj.object_name.replace(prefix, "") for obj in objects if not obj.is_dir]
+        return [obj.object_name.replace(prefix, "") for obj in objects]
 
     def get_file(self, user_id: str, filename: str):
         key = f"{user_id}/{filename}"

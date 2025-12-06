@@ -1,5 +1,5 @@
 import numpy as np
-from typing import Dict, Any
+from typing import Dict, Any, List
 import logging
 import cv2
 from PIL import Image
@@ -41,7 +41,34 @@ class SegmentationService:
             import traceback
             traceback.print_exc()
             return {"success": False, "error": str(e)}
+    #################
+    def segment_volume(self, volume: np.ndarray) -> Dict[str, Any]:
+        """
+        Сегментация всего объема (всех срезов)
+        """
+        try:
+            print(f"🎯 Сегментирую объем: {volume.shape}")
+            masks = []
 
+            # Сегментируем каждый срез
+            for i in range(volume.shape[0]):
+                slice_2d = volume[i]
+                mask = self.model.predict_slice(slice_2d)
+                masks.append(mask)
+
+            masks_array = np.array(masks)
+
+            return {
+                "success": True,
+                "masks_3d": masks_array,
+                "shape": masks_array.shape,
+                "total_slices": len(masks)
+            }
+
+        except Exception as e:
+            logger.error(f"Ошибка сегментации объема: {e}")
+            return {"success": False, "error": str(e)}
+    ######################
     def _create_visualization(self, original_image: np.ndarray, mask: np.ndarray) -> str:
         """
         Создание визуализации с наложенной маской
@@ -96,3 +123,75 @@ class SegmentationService:
             "liver_pixels": int(liver_pixels),
             "total_pixels": int(total_pixels)
         }
+
+    def segment_volume(self, volume_3d: np.ndarray) -> Dict[str, Any]:
+        """
+        Сегментация 3D объема печени
+
+        Args:
+            volume_3d: 3D массив КТ-срезов (z, y, x)
+
+        Returns:
+            Словарь с 3D маской сегментации
+        """
+        try:
+            logger.info(f"Начинаю 3D сегментацию: shape={volume_3d.shape}")
+
+            num_slices = volume_3d.shape[0]
+            masks = []
+
+            for i in range(num_slices):
+                slice_2d = volume_3d[i]
+
+                # Сегментируем срез
+                mask = self.model.predict_slice(slice_2d)
+                masks.append(mask)
+
+                # Логируем прогресс
+                if i % 10 == 0 or i == num_slices - 1:
+                    logger.info(f"Обработан срез {i + 1}/{num_slices}")
+
+            # Собираем 3D маску
+            masks_3d = np.array(masks, dtype=np.uint8)
+
+            # Рассчитываем метрики
+            total_pixels = masks_3d.size
+            liver_pixels = np.sum(masks_3d > 0)
+            liver_ratio = liver_pixels / total_pixels if total_pixels > 0 else 0
+
+            logger.info(f"3D сегментация завершена: {masks_3d.shape}")
+            logger.info(f"Пикселей печени: {liver_pixels} ({liver_ratio * 100:.1f}%)")
+
+            return {
+                'success': True,
+                'masks_3d': masks_3d,
+                'metrics': {
+                    'total_slices': num_slices,
+                    'liver_pixels_total': int(liver_pixels),
+                    'liver_volume_ratio': float(liver_ratio),
+                    'volume_shape': list(masks_3d.shape)
+                }
+            }
+
+        except Exception as e:
+            logger.error(f"Ошибка 3D сегментации: {str(e)}", exc_info=True)
+            return {'success': False, 'error': str(e)}
+
+    def segment_slice_batch(self, slices: List[np.ndarray]) -> Dict[str, Any]:
+        """
+        Пакетная сегментация нескольких срезов
+        """
+        try:
+            masks = []
+            for i, slice_img in enumerate(slices):
+                mask = self.model.predict_slice(slice_img)
+                masks.append(mask)
+
+            return {
+                'success': True,
+                'masks': masks,
+                'num_slices': len(masks)
+            }
+        except Exception as e:
+            logger.error(f"Ошибка пакетной сегментации: {str(e)}")
+            return {'success': False, 'error': str(e)}

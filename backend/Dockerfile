@@ -7,18 +7,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     g++ \
     libgl1 \
     libglib2.0-0 \
+    libglu1-mesa \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# ВАЖНО: путь относительно context (корня проекта)
 COPY backend/requirements.txt ./requirements.txt
 
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Копируем backend-код
-COPY backend/app ./backend/app
+COPY . .
 
-# Копируем модель
-COPY model ./model
+ENV PYTHONPATH=/app
+
+RUN mkdir -p /app/uploads
 
 EXPOSE 8000
 

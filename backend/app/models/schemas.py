@@ -26,3 +26,25 @@ class FileInfo(BaseModel):
     name: str
     size: int
     upload_time: float
+
+    class ReconstructionMetrics(BaseModel):
+        volume_ml: float
+        volume_mm3: float
+        surface_area_cm2: float
+        surface_area_mm2: float
+        center_of_mass: List[float]
+        spacing_x: float
+        spacing_y: float
+        spacing_z: float
+        bounding_box: Dict[str, List[float]]
+
+    class MeshInfo(BaseModel):
+        num_vertices: int
+        num_faces: int
+        bounds: List[float]
+
+    class ReconstructionResponse(BaseModel):
+        filename: str
+        success: bool
+        reconstruction: Dict[str, Any]
+        segmentation_info: Optional[Dict[str, Any]] = None

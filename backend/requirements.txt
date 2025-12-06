@@ -22,3 +22,7 @@ pyvista==0.43.0
 curlify==2.2.1
 
 minio==7.1.14
+
+vtk==9.3.0
+#triangle==2023.1
+zipfile38==0.0.3
